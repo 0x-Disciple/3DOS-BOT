@@ -5,6 +5,8 @@
 - Support multi account
 - Error handling
 
+[Register](https://dashboard.3dos.io/register?ref_code=bca76d)
+
 ## Installation
 1. Clone this repository
 ```bash
@@ -18,7 +20,7 @@ npm install
 
 4. Create screen session
 ```bash
-screen -S 3DOS
+screen -S 3DOS  
 ```
 5. Run 
 ```bash

@@ -14,15 +14,35 @@ const getRandomUserAgent = () => {
     return userAgents[Math.floor(Math.random() * userAgents.length)];
 };
 
+let botToken = null;
+let chatId = null;
+
+try {
+    const telegramData = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim();
+    if (!telegramData.includes('|')) {
+        throw new Error('Format telegram.txt salah. Gunakan <bot_token>|<chat_id>');
+    }
+    [botToken, chatId] = telegramData.split('|').map(x => x.trim());
+
+    if (!botToken || !chatId) {
+        throw new Error('Bot token atau Chat ID tidak boleh kosong');
+    }
+
+    console.log(chalk.cyan('📨 Telegram bot dan chat ID berhasil dimuat.'));
+} catch (err) {
+    console.error(chalk.red('❌ Gagal membaca telegram.txt:'), chalk.yellow(err.message));
+}
+
 async function sendTelegramMessage(message) {
+    if (!botToken || !chatId) return;
     try {
-        const [botToken, chatId] = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim().split(':');
         const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
         await axios.post(url, {
             chat_id: chatId,
             text: message,
             parse_mode: 'Markdown',
         });
+        console.log(chalk.green('✅ Notifikasi Telegram terkirim.'));
     } catch (err) {
         console.log(chalk.red('❌ Gagal kirim notifikasi Telegram:'), chalk.yellow(err.message));
     }

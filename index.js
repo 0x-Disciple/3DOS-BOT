@@ -1,12 +1,10 @@
 const axios = require('axios');
 const fs = require('fs');
 const chalk = require('chalk').default;
-const banner = require('./config/banner')
 
 const API_SECRET_FILE = 'data.txt';
-const MAX_RATE_LIMIT = 60; // Jumlah permintaan maksimum yang diizinkan per periode (misalnya 60)
+const TELEGRAM_FILE = 'telegram.txt';
 
-// Mendapatkan user-agent acak
 const getRandomUserAgent = () => {
     const userAgents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
@@ -16,7 +14,28 @@ const getRandomUserAgent = () => {
     return userAgents[Math.floor(Math.random() * userAgents.length)];
 };
 
-// Fungsi untuk mendapatkan data pengguna menggunakan API Secret dan Bearer Token
+async function sendTelegramMessage(message) {
+    try {
+        const [botToken, chatId] = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim().split(':');
+        const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        await axios.post(url, {
+            chat_id: chatId,
+            text: message,
+            parse_mode: 'Markdown',
+        });
+    } catch (err) {
+        console.log(chalk.red('❌ Gagal kirim notifikasi Telegram:'), chalk.yellow(err.message));
+    }
+}
+
+function toWIBTime(utcTime) {
+    const date = new Date(utcTime);
+    date.setHours(date.getHours() + 7); // UTC+7
+    return date;
+}
+
+let lastEarningCheck = 0;
+
 async function getUserData(apiSecret, bearerToken) {
     const url = `https://api.dashboard.3dos.io/api/profile/api/${apiSecret}`;
     try {
@@ -29,73 +48,81 @@ async function getUserData(apiSecret, bearerToken) {
             }
         });
 
-        const rateLimitRemaining = parseInt(response.headers['x-ratelimit-remaining']);
-        const rateLimitLimit = parseInt(response.headers['x-ratelimit-limit']);
-
-        // Cek apakah masih ada permintaan yang tersisa
-        if (rateLimitRemaining <= 0) {
-            // Jika tidak ada sisa, tunggu 1 jam sampai sisa kembali penuh
-            console.log(chalk.yellow(`Rate limit exceeded. Waiting for 1 hour until next attempt...`));
-
-            // Tunggu selama 1 jam (3600000 ms) sebelum mencoba lagi
-            await new Promise(resolve => setTimeout(resolve, 3600000));
-
-            // Setelah menunggu, coba lagi untuk mengambil data
-            return getUserData(apiSecret, bearerToken);
-        }
-
-        // Tampilkan hasil jika berhasil
         if (response.data && response.data.status === "Success") {
-            const { email, todays_earning } = response.data.data;
-            console.log(chalk.green(`Email: ${email}`));
-            console.log(chalk.green(`Today's Earnings: ${todays_earning}`));
-            console.log(chalk.green('Ping Success!'));  // Output setelah berhasil melakukan ping
+            const data = response.data.data;
+            const email = data.email;
+            const earnings = data.todays_earning;
+            const now = Date.now();
+
+            // Cek earnings setiap 3 jam
+            if (now - lastEarningCheck >= 3 * 60 * 60 * 1000) {
+                const msg = `📊 *3DOS Earnings Update*\nEmail: \`${email}\`\nEarnings Today: *${earnings}*`;
+                console.log(chalk.cyan(` ${msg.replace(/\*/g, '')}`));
+                await sendTelegramMessage(msg);
+            }
+
+            // Cek klaim reward
+            const nextClaim = toWIBTime(data.next_daily_reward_claim);
+            if (Date.now() > nextClaim.getTime()) {
+                const claimUrl = 'https://api.dashboard.3dos.io/api/claim-reward';
+                try {
+                    const claimRes = await axios.post(claimUrl, {}, {
+                        headers: {
+                            'Authorization': `Bearer ${bearerToken}`,
+                            'User-Agent': getRandomUserAgent(),
+                            'Accept': '*/*',
+                            'Origin': 'chrome-extension://lpindahibbkakkdjifonckbhopdoaooe',
+                        }
+                    });
+
+                    if (claimRes.data.status === "Success") {
+                        const msg = `🎁 *Daily Reward Claimed*\nEmail: \`${email}\`\nMessage: ${claimRes.data.message}`;
+                        console.log(chalk.green(`✅ ${msg.replace(/\*/g, '')}`));
+                        await sendTelegramMessage(msg);
+                    } else {
+                        console.log(chalk.yellow(`⚠️ ${email} | ${claimRes.data.message}`));
+                    }
+                } catch (e) {
+                    console.log(chalk.red(`❌ Claim Error for ${email}:`), chalk.yellow(e.message));
+                }
+            }
         } else {
-            console.log(chalk.red(`Failed to fetch user data: ${response.data.message}`));
+            console.log(chalk.red(`❌ Failed to fetch user data: ${response.data.message}`));
         }
     } catch (error) {
-        console.error(chalk.red('Error fetching user data:'), chalk.yellow(error.message));
+        console.error(chalk.red('❌ Error fetching user data:'), chalk.yellow(error.message));
     }
 }
 
-// Fungsi untuk memproses akun-akun dari file
 async function processAccounts() {
     try {
-        const apiSecretsAndTokens = fs.readFileSync(API_SECRET_FILE, 'utf8')
+        const lines = fs.readFileSync(API_SECRET_FILE, 'utf8')
             .split('\n')
             .map(line => line.trim())
-            .filter(line => line);
+            .filter(line => line.length > 0);
 
-        if (apiSecretsAndTokens.length === 0) {
-            console.log(chalk.red('No API secrets found in the file.'));
+        if (lines.length === 0) {
+            console.log(chalk.red('❌ Tidak ada data di file.'));
             return;
         }
 
-        for (const line of apiSecretsAndTokens) {
-            const [apiSecret, bearerToken] = line.split(':').map(item => item.trim());
+        for (const line of lines) {
+            const [apiSecret, bearerToken] = line.split(':').map(e => e.trim());
             if (!apiSecret || !bearerToken) {
-                console.log(chalk.red(`Invalid format in line: ${line}`));
+                console.log(chalk.red(`❌ Format salah di baris: ${line}`));
                 continue;
             }
 
-            console.log(chalk.blue(`Fetching data for API Secret: ${apiSecret.substring(0, 5)}...`));
-
-            // Gunakan bearer token yang sudah ada untuk mengambil data pengguna
+            console.log(chalk.blue(`🔁 Ping untuk API Secret: ${apiSecret.substring(0, 5)}...`));
             await getUserData(apiSecret, bearerToken);
         }
-    } catch (error) {
-        console.error(chalk.red('Error reading API secrets file:'), chalk.yellow(error.message));
+
+        lastEarningCheck = Date.now();
+    } catch (err) {
+        console.error(chalk.red('❌ Error membaca file akun:'), chalk.yellow(err.message));
     }
 }
 
-// Fungsi untuk auto ping yang menunggu sampai sisa rate limit kembali penuh
-async function autoPing() {
-    // Ambil data akun dan pastikan bahwa rate limit sudah cukup untuk melakukan ping
-    await processAccounts();
-}
-
-// Fetch data setiap 5 menit (300000 ms) jika rate limit memungkinkan
-setInterval(autoPing, 300000);
-
-// Jalankan pertama kali saat script dimulai
-autoPing();
+// Mulai dan set interval
+processAccounts();
+setInterval(processAccounts, 5 * 60 * 1000); // Ping setiap 5 menit

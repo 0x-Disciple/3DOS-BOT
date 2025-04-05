@@ -18,10 +18,12 @@ let botToken = null;
 let chatId = null;
 
 try {
-    const [botToken, chatId] = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim().split('|');
+    const telegramData = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim();
+
     if (!telegramData.includes('|')) {
         throw new Error('Format telegram.txt salah. Gunakan <bot_token>|<chat_id>');
     }
+
     [botToken, chatId] = telegramData.split('|').map(x => x.trim());
 
     if (!botToken || !chatId) {
@@ -32,6 +34,7 @@ try {
 } catch (err) {
     console.error(chalk.red('❌ Gagal membaca telegram.txt:'), chalk.yellow(err.message));
 }
+
 
 async function sendTelegramMessage(message) {
     if (!botToken || !chatId) return;

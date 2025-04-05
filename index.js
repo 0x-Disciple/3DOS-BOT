@@ -18,7 +18,7 @@ let botToken = null;
 let chatId = null;
 
 try {
-    const telegramData = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim();
+    const [botToken, chatId] = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim().split('|');
     if (!telegramData.includes('|')) {
         throw new Error('Format telegram.txt salah. Gunakan <bot_token>|<chat_id>');
     }

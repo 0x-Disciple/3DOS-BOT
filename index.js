@@ -3,7 +3,6 @@ const fs = require('fs');
 const chalk = require('chalk').default;
 
 const API_SECRET_FILE = 'data.txt';
-const TELEGRAM_FILE = 'telegram.txt';
 
 const getRandomUserAgent = () => {
     const userAgents = [
@@ -13,43 +12,6 @@ const getRandomUserAgent = () => {
     ];
     return userAgents[Math.floor(Math.random() * userAgents.length)];
 };
-
-let botToken = null;
-let chatId = null;
-
-try {
-    const telegramData = fs.readFileSync(TELEGRAM_FILE, 'utf8').trim();
-
-    if (!telegramData.includes('|')) {
-        throw new Error('Format telegram.txt salah. Gunakan <bot_token>|<chat_id>');
-    }
-
-    [botToken, chatId] = telegramData.split('|').map(x => x.trim());
-
-    if (!botToken || !chatId) {
-        throw new Error('Bot token atau Chat ID tidak boleh kosong');
-    }
-
-    console.log(chalk.cyan('📨 Telegram bot dan chat ID berhasil dimuat.'));
-} catch (err) {
-    console.error(chalk.red('❌ Gagal membaca telegram.txt:'), chalk.yellow(err.message));
-}
-
-
-async function sendTelegramMessage(message) {
-    if (!botToken || !chatId) return;
-    try {
-        const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-        await axios.post(url, {
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'Markdown',
-        });
-        console.log(chalk.green('✅ Notifikasi Telegram terkirim.'));
-    } catch (err) {
-        console.log(chalk.red('❌ Gagal kirim notifikasi Telegram:'), chalk.yellow(err.message));
-    }
-}
 
 function toWIBTime(utcTime) {
     const date = new Date(utcTime);
@@ -77,16 +39,14 @@ async function getUserData(apiSecret, bearerToken) {
             const earnings = data.todays_earning;
             const now = Date.now();
 
-            // Cek earnings setiap 3 jam
+            console.log(chalk.blue(`🔁 Process account: ${email}`));
+
             if (now - lastEarningCheck >= 3 * 60 * 60 * 1000) {
-                const msg = `📊 *3DOS Earnings Update*\nEmail: \`${email}\`\nEarnings Today: *${earnings}*`;
-                console.log(chalk.cyan(` ${msg.replace(/\*/g, '')}`));
-                await sendTelegramMessage(msg);
+                console.log(chalk.cyan(`📊 Today earnings ${earnings}`));
             }
 
-            // Cek klaim reward
-            const nextClaim = toWIBTime(data.next_daily_reward_claim);
-            if (Date.now() > nextClaim.getTime()) {
+            const nextClaim = new Date(data.next_daily_reward_claim);
+            if (!data.next_daily_reward_claim || now > nextClaim.getTime()) {
                 const claimUrl = 'https://api.dashboard.3dos.io/api/claim-reward';
                 try {
                     const claimRes = await axios.post(claimUrl, {}, {
@@ -99,21 +59,21 @@ async function getUserData(apiSecret, bearerToken) {
                     });
 
                     if (claimRes.data.status === "Success") {
-                        const msg = `🎁 *Daily Reward Claimed*\nEmail: \`${email}\`\nMessage: ${claimRes.data.message}`;
-                        console.log(chalk.green(`✅ ${msg.replace(/\*/g, '')}`));
-                        await sendTelegramMessage(msg);
+                        console.log(chalk.green(`🎁 ${email} | Klaim daily reward berhasil: ${claimRes.data.message}`));
                     } else {
                         console.log(chalk.yellow(`⚠️ ${email} | ${claimRes.data.message}`));
                     }
                 } catch (e) {
-                    console.log(chalk.red(`❌ Claim Error for ${email}:`), chalk.yellow(e.message));
+                    console.log(chalk.red(`❌ Claim Error | ${email}:`), chalk.yellow(e.message));
                 }
+            } else {
+                console.log(chalk.gray(`✅ ${email} | Already claimed today. Next claim: ${nextClaim.toLocaleString('id-ID')}`));
             }
         } else {
-            console.log(chalk.red(`❌ Failed to fetch user data: ${response.data.message}`));
+            console.log(chalk.red(`❌ Gagal ambil data user: ${response.data.message}`));
         }
     } catch (error) {
-        console.error(chalk.red('❌ Error fetching user data:'), chalk.yellow(error.message));
+        console.error(chalk.red('❌ Error ambil user data:'), chalk.yellow(error.message));
     }
 }
 
@@ -125,7 +85,7 @@ async function processAccounts() {
             .filter(line => line.length > 0);
 
         if (lines.length === 0) {
-            console.log(chalk.red('❌ Tidak ada data di file.'));
+            console.log(chalk.red('❌ Tidak ada data akun di file.'));
             return;
         }
 
@@ -136,7 +96,6 @@ async function processAccounts() {
                 continue;
             }
 
-            console.log(chalk.blue(`🔁 Ping untuk API Secret: ${apiSecret.substring(0, 5)}...`));
             await getUserData(apiSecret, bearerToken);
         }
 
@@ -146,6 +105,6 @@ async function processAccounts() {
     }
 }
 
-// Mulai dan set interval
+// Mulai dan ulangi tiap 5 menit
 processAccounts();
-setInterval(processAccounts, 5 * 60 * 1000); // Ping setiap 5 menit
+setInterval(processAccounts, 5 * 60 * 1000);

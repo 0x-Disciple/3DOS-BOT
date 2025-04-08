@@ -10,7 +10,7 @@
 ## Installation
 1. Clone this repository
 ```bash
-git clone https://github.com/0x-Disciple/3DOS-BOT.git cd 3DOS-BOT
+git clone https://github.com/CryptoKidzz/3DOS-BOT.git cd 3DOS-BOT
 ```
 2. Install dependencies
 ```bash

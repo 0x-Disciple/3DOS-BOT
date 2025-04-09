@@ -1,6 +1,6 @@
 const axios = require('axios');
 const fs = require('fs');
-const chalk = require('chalk').default;
+const chalk = require('chalk');
 
 const API_SECRET_FILE = 'data.txt';
 
